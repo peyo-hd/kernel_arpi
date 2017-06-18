@@ -6,6 +6,7 @@
 #
 
 ccflags-y += \
+	-Wno-int-to-void-pointer-cast \
 	-I $(srctree)/$(src) \
 	-I $(srctree)/$(src)/../include
 
