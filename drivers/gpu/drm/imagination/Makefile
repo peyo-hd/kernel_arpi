@@ -2,6 +2,7 @@
 # Copyright (c) 2022 Imagination Technologies Ltd.
 
 subdir-ccflags-y := -I$(srctree)/$(src)
+subdir-ccflags-y += -Wno-sometimes-uninitialized
 
 powervr-y := \
 	pvr_ccb.o \
