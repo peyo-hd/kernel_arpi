@@ -9,6 +9,8 @@
 #include "ufs.h"
 #include "ufs-sysfs.h"
 
+#include <trace/hooks/ufshcd.h>
+
 static const char *ufschd_uic_link_state_to_string(
 			enum uic_link_state state)
 {
@@ -785,7 +787,8 @@ static ssize_t _pname##_show(struct device *dev,			\
 	struct scsi_device *sdev = to_scsi_device(dev);			\
 	struct ufs_hba *hba = shost_priv(sdev->host);			\
 	u8 lun = ufshcd_scsi_to_upiu_lun(sdev->lun);			\
-	if (!ufs_is_valid_unit_desc_lun(&hba->dev_info, lun))		\
+	if (!ufs_is_valid_unit_desc_lun(&hba->dev_info, lun,		\
+				_duname##_DESC_PARAM##_puname))		\
 		return -EINVAL;						\
 	return ufs_sysfs_read_desc_param(hba, QUERY_DESC_IDN_##_duname,	\
 		lun, _duname##_DESC_PARAM##_puname, buf, _size);	\
@@ -862,15 +865,19 @@ const struct attribute_group ufs_sysfs_lun_attributes_group = {
 	.attrs = ufs_sysfs_lun_attributes,
 };
 
-void ufs_sysfs_add_nodes(struct device *dev)
+void ufs_sysfs_add_nodes(struct ufs_hba *hba)
 {
 	int ret;
 
-	ret = sysfs_create_groups(&dev->kobj, ufs_sysfs_groups);
-	if (ret)
-		dev_err(dev,
+	ret = sysfs_create_groups(&hba->dev->kobj, ufs_sysfs_groups);
+	if (ret) {
+		dev_err(hba->dev,
 			"%s: sysfs groups creation failed (err = %d)\n",
 			__func__, ret);
+		return;
+	}
+
+	trace_android_vh_ufs_update_sysfs(hba);
 }
 
 void ufs_sysfs_remove_nodes(struct device *dev)

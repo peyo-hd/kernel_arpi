@@ -303,7 +303,7 @@ static int amba_remove(struct device *dev)
 
 	pm_runtime_get_sync(dev);
 	if (drv->remove)
-		ret = drv->remove(pcdev);
+		drv->remove(pcdev);
 	pm_runtime_put_noidle(dev);
 
 	/* Undo the runtime PM settings in amba_probe() */
