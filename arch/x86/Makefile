@@ -177,6 +177,11 @@ ifeq ($(ACCUMULATE_OUTGOING_ARGS), 1)
 	KBUILD_CFLAGS += $(call cc-option,-maccumulate-outgoing-args,)
 endif
 
+ifdef CONFIG_LTO_CLANG
+KBUILD_LDFLAGS	+= -plugin-opt=-code-model=kernel \
+		   -plugin-opt=-stack-alignment=$(if $(CONFIG_X86_32),4,8)
+endif
+
 # Workaround for a gcc prelease that unfortunately was shipped in a suse release
 KBUILD_CFLAGS += -Wno-sign-compare
 #
@@ -257,8 +262,11 @@ BOOT_TARGETS = bzdisk fdimage fdimage144 fdimage288 isoimage
 
 PHONY += bzImage $(BOOT_TARGETS)
 
+# Don't compile Image in mixed build with "all" target
+ifndef KBUILD_MIXED_TREE
 # Default kernel to build
 all: bzImage
+endif
 
 # KBUILD_IMAGE specify target image being built
 KBUILD_IMAGE := $(boot)/bzImage
