@@ -63,6 +63,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/vmscan.h>
 
+#undef CREATE_TRACE_POINTS
+#include <trace/hooks/vmscan.h>
+
 struct scan_control {
 	/* How many pages shrink_list() should reclaim */
 	unsigned long nr_to_reclaim;
@@ -170,6 +173,23 @@ struct scan_control {
  * From 0 .. 200.  Higher means more swappy.
  */
 int vm_swappiness = 60;
+
+#define DEF_KSWAPD_THREADS_PER_NODE 1
+static int kswapd_threads = DEF_KSWAPD_THREADS_PER_NODE;
+static int __init kswapd_per_node_setup(char *str)
+{
+	int tmp;
+
+	if (kstrtoint(str, 0, &tmp) < 0)
+		return 0;
+
+	if (tmp > MAX_KSWAPD_THREADS || tmp <= 0)
+		return 0;
+
+	kswapd_threads = tmp;
+	return 1;
+}
+__setup("kswapd_per_node=", kswapd_per_node_setup);
 
 static void set_task_reclaim_state(struct task_struct *task,
 				   struct reclaim_state *rs)
@@ -425,6 +445,8 @@ static unsigned long do_shrink_slab(struct shrink_control *shrinkctl,
 					  : SHRINK_BATCH;
 	long scanned = 0, next_deferred;
 
+	trace_android_vh_do_shrink_slab(shrinker, shrinkctl, priority);
+
 	if (!(shrinker->flags & SHRINKER_NUMA_AWARE))
 		nid = 0;
 
@@ -650,6 +672,11 @@ static unsigned long shrink_slab(gfp_t gfp_mask, int nid,
 {
 	unsigned long ret, freed = 0;
 	struct shrinker *shrinker;
+	bool bypass = false;
+
+	trace_android_vh_shrink_slab_bypass(gfp_mask, nid, memcg, priority, &bypass);
+	if (bypass)
+		return 0;
 
 	/*
 	 * The root memcg might be allocated even though memcg is disabled
@@ -2213,6 +2240,8 @@ static bool inactive_is_low(struct lruvec *lruvec, enum lru_list inactive_lru)
 	else
 		inactive_ratio = 1;
 
+	trace_android_vh_tune_inactive_ratio(&inactive_ratio, is_file_lru(inactive_lru));
+
 	return inactive * inactive_ratio < active;
 }
 
@@ -2243,6 +2272,7 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	enum scan_balance scan_balance;
 	unsigned long ap, fp;
 	enum lru_list lru;
+	bool balance_anon_file_reclaim = false;
 
 	/* If we have no swap space, do not bother scanning anon pages. */
 	if (!sc->may_swap || mem_cgroup_get_nr_swap_pages(memcg) <= 0) {
@@ -2250,6 +2280,7 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 		goto out;
 	}
 
+	trace_android_vh_tune_swappiness(&swappiness);
 	/*
 	 * Global reclaim will swap to prevent OOM even with no
 	 * swappiness, but memcg users want to use this knob to
@@ -2280,11 +2311,15 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 		goto out;
 	}
 
+	trace_android_rvh_set_balance_anon_file_reclaim(&balance_anon_file_reclaim);
+
 	/*
 	 * If there is enough inactive page cache, we do not reclaim
-	 * anything from the anonymous working right now.
+	 * anything from the anonymous working right now. But when balancing
+	 * anon and page cache files for reclaim, allow swapping of anon pages
+	 * even if there are a number of inactive file cache pages.
 	 */
-	if (sc->cache_trim_mode) {
+	if (!balance_anon_file_reclaim && sc->cache_trim_mode) {
 		scan_balance = SCAN_FILE;
 		goto out;
 	}
@@ -2320,6 +2355,7 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	fraction[1] = fp;
 	denominator = ap + fp;
 out:
+	trace_android_vh_tune_scan_type((char *)(&scan_balance));
 	for_each_evictable_lru(lru) {
 		int file = is_file_lru(lru);
 		unsigned long lruvec_size;
@@ -3935,6 +3971,46 @@ kswapd_try_sleep:
 	return 0;
 }
 
+static int kswapd_per_node_run(int nid)
+{
+	pg_data_t *pgdat = NODE_DATA(nid);
+	int hid;
+	int ret = 0;
+
+	for (hid = 0; hid < kswapd_threads; ++hid) {
+		pgdat->mkswapd[hid] = kthread_run(kswapd, pgdat, "kswapd%d:%d",
+								nid, hid);
+		if (IS_ERR(pgdat->mkswapd[hid])) {
+			/* failure at boot is fatal */
+			WARN_ON(system_state < SYSTEM_RUNNING);
+			pr_err("Failed to start kswapd%d on node %d\n",
+				hid, nid);
+			ret = PTR_ERR(pgdat->mkswapd[hid]);
+			pgdat->mkswapd[hid] = NULL;
+			continue;
+		}
+		if (!pgdat->kswapd)
+			pgdat->kswapd = pgdat->mkswapd[hid];
+	}
+
+	return ret;
+}
+
+static void kswapd_per_node_stop(int nid)
+{
+	int hid = 0;
+	struct task_struct *kswapd;
+
+	for (hid = 0; hid < kswapd_threads; hid++) {
+		kswapd = NODE_DATA(nid)->mkswapd[hid];
+		if (kswapd) {
+			kthread_stop(kswapd);
+			NODE_DATA(nid)->mkswapd[hid] = NULL;
+		}
+	}
+	NODE_DATA(nid)->kswapd = NULL;
+}
+
 /*
  * A zone is low on free memory or too fragmented for high-order memory.  If
  * kswapd should reclaim (direct reclaim is deferred), wake it up for the zone's
@@ -4038,6 +4114,9 @@ int kswapd_run(int nid)
 	if (pgdat->kswapd)
 		return 0;
 
+	if (kswapd_threads > 1)
+		return kswapd_per_node_run(nid);
+
 	pgdat->kswapd = kthread_run(kswapd, pgdat, "kswapd%d", nid);
 	if (IS_ERR(pgdat->kswapd)) {
 		/* failure at boot is fatal */
@@ -4056,6 +4135,11 @@ int kswapd_run(int nid)
 void kswapd_stop(int nid)
 {
 	struct task_struct *kswapd = NODE_DATA(nid)->kswapd;
+
+	if (kswapd_threads > 1) {
+		kswapd_per_node_stop(nid);
+		return;
+	}
 
 	if (kswapd) {
 		kthread_stop(kswapd);
