@@ -78,6 +78,7 @@
 #include <linux/capability.h>
 #include <linux/user_namespace.h>
 #include <linux/indirect_call_wrapper.h>
+#include <trace/hooks/net.h>
 
 #include "datagram.h"
 #include "sock_destructor.h"
@@ -770,6 +771,7 @@ void kfree_skb(struct sk_buff *skb)
 	if (!skb_unref(skb))
 		return;
 
+	trace_android_vh_kfree_skb(skb);
 	trace_kfree_skb(skb, __builtin_return_address(0));
 	__kfree_skb(skb);
 }
@@ -4844,7 +4846,7 @@ static void __skb_complete_tx_timestamp(struct sk_buff *skb,
 		serr->ee.ee_data = skb_shinfo(skb)->tskey;
 		if (sk->sk_protocol == IPPROTO_TCP &&
 		    sk->sk_type == SOCK_STREAM)
-			serr->ee.ee_data -= atomic_read(&sk->sk_tskey);
+			serr->ee.ee_data -= sk->sk_tskey;
 	}
 
 	err = sock_queue_err_skb(sk, skb);
