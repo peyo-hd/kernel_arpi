@@ -193,11 +193,11 @@
 	sustainable-power = <4500>; /* milliwatts */
 	trips {
 		threshold: trip-point0 {
-			temperature = <60000>;
+			temperature = <70000>;
 		};
 
 		target: trip-point1 {
-			temperature = <65000>;
+			temperature = <75000>;
 		};
 	};
 };
@@ -403,10 +403,10 @@
 	pinctrl-0 = <&mmc1_pins_default>;
 	pinctrl-1 = <&mmc1_pins_uhs>;
 	bus-width = <4>;
-	max-frequency = <200000000>;
+	max-frequency = <50000000>;
 	cap-sd-highspeed;
-	sd-uhs-sdr50;
-	sd-uhs-sdr104;
+//	sd-uhs-sdr50;
+//	sd-uhs-sdr104;
 	cd-gpios = <&pio 1 GPIO_ACTIVE_LOW>;
 	vmmc-supply = <&mt6397_vmch_reg>;
 	vqmmc-supply = <&mt6397_vmc_reg>;
