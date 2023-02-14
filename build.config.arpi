@@ -1,0 +1,24 @@
+KERNEL_DIR=common
+. ${ROOT_DIR}/${KERNEL_DIR}/build.config.common
+. ${ROOT_DIR}/${KERNEL_DIR}/build.config.aarch64
+
+BRANCH=mt-6.2
+DEFCONFIG=arpi_defconfig
+PRE_DEFCONFIG_CMDS="KCONFIG_CONFIG=${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/${DEFCONFIG} ${ROOT_DIR}/${KERNEL_DIR}/scripts/kconfig/merge_config.sh -m -r ${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/defconfig ${ROOT_DIR}/${KERNEL_DIR}/kernel/configs/android-base.config ${ROOT_DIR}/${KERNEL_DIR}/kernel/configs/android-recommended.config ${ROOT_DIR}/${KERNEL_DIR}/kernel/configs/android-recommended-arm64.config ${ROOT_DIR}/${KERNEL_DIR}/kernel/configs/android-base-conditional.config /compile/doc/kernel-config-options/options-to-remove-generic.cfg /compile/doc/stable-mt/misc.cbm/options/options-to-remove-special.cfg /compile/doc/kernel-config-options/additional-options-aarch64.cfg /compile/doc/stable-mt/misc.cbm/options/additional-options-special.cfg ${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/mt8173.config"
+POST_DEFCONFIG_CMDS="rm ${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/${DEFCONFIG}"
+DTC_FLAGS="-@"
+
+MAKE_GOALS="
+Image.lz4
+mediatek/mt8173-elm-hana.dtb
+"
+
+FILES="
+arch/arm64/boot/Image.lz4
+arch/arm64/boot/dts/mediatek/mt8173-elm-hana.dtb
+"
+
+EXTRA_CMDS="lz4_compress"
+function lz4_compress() {
+        lz4 -f ${OUT_DIR}/arch/arm64/boot/Image ${OUT_DIR}/arch/arm64/boot/Image.lz4
+}

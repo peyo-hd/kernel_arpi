@@ -1,2 +1,2 @@
-BRANCH=android-mainline
+BRANCH=mt-6.2
 CLANG_VERSION=r475365b
