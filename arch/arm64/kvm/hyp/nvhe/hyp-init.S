@@ -5,6 +5,7 @@
  */
 
 #include <linux/arm-smccc.h>
+#include <linux/cfi_types.h>
 #include <linux/linkage.h>
 
 #include <asm/alternative.h>
@@ -109,6 +110,13 @@ SYM_CODE_START_LOCAL(___kvm_hyp_init)
 	ldr	x1, [x0, #NVHE_INIT_TPIDR_EL2]
 	msr	tpidr_el2, x1
 
+	mrs	x1, ID_AA64MMFR0_EL1
+	and	x1, x1, #(0xf << ID_AA64MMFR0_EL1_FGT_SHIFT)
+	cbz	x1, 2f
+	ldr	x1, [x0, #NVHE_INIT_HFGWTR_EL2]
+	msr_s	SYS_HFGWTR_EL2, x1
+
+2:
 	ldr	x1, [x0, #NVHE_INIT_VTTBR]
 	msr	vttbr_el2, x1
 
@@ -269,7 +277,18 @@ alternative_else_nop_endif
 
 SYM_CODE_END(__kvm_handle_stub_hvc)
 
-SYM_FUNC_START(__pkvm_init_switch_pgd)
+/*
+ * void __pkvm_init_switch_pgd(struct kvm_nvhe_init_params *params,
+ *                             void (*finalize_fn)(void));
+ *
+ * SYM_TYPED_FUNC_START() allows C to call this ID-mapped function indirectly
+ * using a physical pointer without triggering a kCFI failure.
+ */
+SYM_TYPED_FUNC_START(__pkvm_init_switch_pgd)
+	/* Load the inputs from the VA pointer before turning the MMU off */
+	ldr	x5, [x0, #NVHE_INIT_PGD_PA]
+	ldr	x0, [x0, #NVHE_INIT_STACK_HYP_VA]
+
 	/* Turn the MMU off */
 	pre_disable_mmu_workaround
 	mrs	x2, sctlr_el2
@@ -280,15 +299,13 @@ SYM_FUNC_START(__pkvm_init_switch_pgd)
 	tlbi	alle2
 
 	/* Install the new pgtables */
-	ldr	x3, [x0, #NVHE_INIT_PGD_PA]
-	phys_to_ttbr x4, x3
+	phys_to_ttbr x4, x5
 alternative_if ARM64_HAS_CNP
 	orr	x4, x4, #TTBR_CNP_BIT
 alternative_else_nop_endif
 	msr	ttbr0_el2, x4
 
 	/* Set the new stack pointer */
-	ldr	x0, [x0, #NVHE_INIT_STACK_HYP_VA]
 	mov	sp, x0
 
 	/* And turn the MMU back on! */
