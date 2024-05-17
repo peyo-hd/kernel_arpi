@@ -7,7 +7,8 @@
 
 ccflags-y += \
 	-I $(srctree)/$(src) \
-	-I $(srctree)/$(src)/../include
+	-I $(srctree)/$(src)/../include \
+	-Wno-array-bounds
 
 obj-$(CONFIG_BRCMFMAC) += brcmfmac.o
 brcmfmac-objs += \
